@@ -1,0 +1,55 @@
+Step 1: Login
+Open http://localhost:8501
+
+Log in with:
+
+Patient: patient1 / patientpass
+
+Medical Staff: medic1 / medicpass
+
+Step 2: Test Features
+For Patients
+Submit Symptoms
+
+Go to "Health Monitoring"
+
+Select symptom type and enter values
+
+Click "Submit Reading"
+
+Start Video Consultation
+
+Go to "Video Consultations"
+
+Schedule a call (if implemented)
+
+Join a call (if WebRTC is configured)
+
+Secure Chat
+
+Go to "Secure Messaging"
+
+Select a medical staff member
+
+Send test messages
+
+For Medical Staff
+View Patient Vitals
+
+Go to "Health Monitoring"
+
+Select a patient
+
+Check historical data
+
+Manage Alerts
+
+Go to "Video Consultations" (if alerts are there)
+
+Trigger/respond to alerts
+
+Update Supplies
+
+Go to "Health Monitoring" (or dedicated section)
+
+Modify inventory (if implemented)
