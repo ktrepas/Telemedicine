@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pandas
+pyodbc
+python-jose
+passlib[bcrypt]
+requests
+sentinelsat
+streamlit

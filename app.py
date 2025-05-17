@@ -24,8 +24,7 @@ def polish_symptoms_table(symptoms):
         "treatment_guidance": "Treatment Guidance"
     })
     df = df[["Symptom", "Patient Rating", "Diagnosis", "Treatment Guidance", "Calculated Severity", "Timestamp"]]
-    st.dataframe(df, use_container_width=True)
-    edited_df = st.experimental_data_editor(df, use_container_width=True)
+    edited_df = st.data_editor(df, use_container_width=True)
     if st.button("Save"):
         updated_symptoms = []
         for index, row in edited_df.iterrows():
@@ -181,14 +180,18 @@ def active_alerts():
             return
         df = pd.DataFrame(alerts)
         if not df.empty:
+            # Rename columns for clarity
             df = df.rename(columns={
                 'alert_id': 'Alert ID',
                 'patient': 'User',
-                'status': 'Status'
+                'status': 'Status',
+                'trigger_time': 'Triggered At'
             })
+            # Select and order columns to display
+            display_cols = [col for col in ['Alert ID', 'User', 'Status', 'Triggered At'] if col in df.columns]
+            # Add row numbers
             df.index = df.index + 1
-            df = df.reset_index(drop=True)
-            st.dataframe(df[["id"]], use_container_width=True)
+            st.dataframe(df, use_container_width=True)
         else:
             st.info("No alerts to display.")
     except Exception as e:
@@ -524,27 +527,74 @@ def chat_session():
             st.write("### Submitted Data")
             st.write(f"**Treatment Guidance:** {treatment_guidance}")
 
-def view_any_table():
-    st.header("View Any SQL Server Table")
-    # Dropdown for known tables
-    table_options = ["MedicalSupplies", "Alerts", "SARRequests"]
-    table_name = st.selectbox("Select table to view:", table_options)
-    limit = st.number_input("Max rows to fetch", min_value=1, max_value=10000, value=1000)
+def dashboard():
+    st.header("Dashboard")
+    # ...rest of the code...
+    # Fetch available tables
+    try:
+        response = requests.get(
+            f"{API_URL}/tables",
+            headers={"Authorization": f"Bearer {st.session_state.token}"}
+        )
+        response.raise_for_status()
+        tables = response.json()
+    except Exception as e:
+        st.error(f"Error fetching tables: {e}")
+        return
+
+    table_name = st.selectbox("Select table to view", tables)
     if st.button("Load Table"):
         try:
             response = requests.get(
                 f"{API_URL}/table/{table_name}",
-                params={"limit": limit},
                 headers={"Authorization": f"Bearer {st.session_state.token}"}
             )
             response.raise_for_status()
             records = response.json()
             if records:
                 df = pd.DataFrame(records)
-                with st.expander(f"Show Table: {table_name}", expanded=True):
-                    st.dataframe(df.reset_index(drop=True), use_container_width=True)
+                st.dataframe(df, use_container_width=True)
+
+                # --- Row Deletion Section ---
+                st.subheader("Delete a Row")
+                if not df.empty:
+                    # Assume the table has a unique 'id' or 'item' column
+                    key_col = None
+                    for col in ["id", "alert_id", "item"]:
+                        if col in df.columns:
+                            key_col = col
+                            break
+                    if key_col:
+                        row_to_delete = st.selectbox(
+                            f"Select {key_col} to delete", df[key_col].astype(str)
+                        )
+                        if st.button("Delete Selected Row"):
+                            try:
+                                # Choose endpoint and payload based on table and key_col
+                                if table_name == "MedicalSupplies" and key_col == "item":
+                                    del_response = requests.delete(
+                                        f"{API_URL}/delete-supply-row",
+                                        headers={"Authorization": f"Bearer {st.session_state.token}"},
+                                        params={"item": row_to_delete}
+                                    )
+                                elif key_col == "id":
+                                    del_response = requests.delete(
+                                        f"{API_URL}/delete-row/{table_name}",
+                                        headers={"Authorization": f"Bearer {st.session_state.token}"},
+                                        params={"id": row_to_delete}
+                                    )
+                                else:
+                                    st.warning("Delete not supported for this table.")
+                                    return
+                                del_response.raise_for_status()
+                                st.success(f"Deleted row with {key_col}: {row_to_delete}")
+                                st.experimental_rerun()
+                            except Exception as e:
+                                st.error(f"Error deleting row: {e}")
+                    else:
+                        st.info("No supported key column found for deletion.")
             else:
-                st.info("No records found.")
+                st.info("No records found in this table.")
         except Exception as e:
             st.error(f"Error loading table: {e}")
 
@@ -570,7 +620,7 @@ def main():
             "Delivery Logistics",
             "Search and Rescue",
             "Submit SAR with Satellite",
-            "View Any Table"  # <-- Add this line
+            "Dashboard"  # <-- Add this line
         ]
     else:
         menu_options = [
@@ -605,12 +655,11 @@ def main():
         submit_sar_with_satellite()
     elif menu == "Chat Session":
         chat_session()
-    elif menu == "View Any Table":
-        view_any_table()
+    elif menu == "Dashboard":
+        dashboard()
 
 if __name__ == "__main__":
     main()
-
 
 
 

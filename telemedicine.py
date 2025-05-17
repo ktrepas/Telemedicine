@@ -214,25 +214,34 @@ async def submit_symptoms(
     symptoms: dict,
     current_user: User = Depends(get_current_user)
 ):
-    if (current_user.role != "patient"):
-        raise HTTPException(status_code=403, detail="Only patients can submit symptoms.")
     symptom = symptoms.get("symptom", "").lower()
     user_severity = symptoms.get("severity", 1)
-    severity_map = {
-        "cough": lambda x: min(x, 3),
-        "fever": lambda x: x * 2 if x > 3 else x,
-        "headache": lambda x: x + 1 if x > 5 else x,
-        "shortness_of_breath": lambda x: x * 3
-    }
-    calculated_severity = severity_map.get(symptom, lambda x: x)(user_severity)
+    calculated_severity = user_severity  # or your logic
     entry = {
         "patient": current_user.username,
         "symptom": symptom,
         "user_severity": user_severity,
         "calculated_severity": min(calculated_severity, 10),
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now()  # Use datetime.now() if your column is DATETIME
     }
-    # TODO: Save to database if needed
+    conn = get_db_connection()
+    if conn is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    try:
+        query = """
+        INSERT INTO Symptoms (patient, symptom, user_severity, calculated_severity, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+        """
+        conn.execute(query, (
+            entry["patient"],
+            entry["symptom"],
+            entry["user_severity"],
+            entry["calculated_severity"],
+            entry["timestamp"]
+        ))
+        conn.commit()
+    finally:
+        conn.close()
     return entry
 
 @app.get("/patient-symptoms")
@@ -240,8 +249,18 @@ async def get_patient_symptoms(
     patient: str,
     current_user: User = Depends(require_role("medical_staff"))
 ):
-    # TODO: Fetch from database if needed
-    return []
+    conn = get_db_connection()
+    if conn is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    try:
+        # Adjust table/column names as needed
+        query = "SELECT * FROM Symptoms WHERE patient = ?"
+        df = pd.read_sql(query, conn, params=[patient])
+        return df.to_dict(orient="records")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 @app.post("/create-video-session")
 async def create_video_session(current_user: User = Depends(get_current_user)):
@@ -320,6 +339,19 @@ def delete_supply(request: DeleteSupplyRequest):
     conn.commit()
     conn.close()
     return {"message": f"Deleted {request.item}"}
+
+@app.delete("/delete-supply-row")
+def delete_supply_row(item: str):
+    conn = get_db_connection()
+    try:
+        conn.execute("DELETE FROM MedicalSupplies WHERE item = ?", (item,))
+        conn.commit()
+        return {"message": f"Deleted row for item: {item}"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
 
 @app.post("/request-delivery")
 def request_delivery(request: DeliveryRequest):
@@ -476,6 +508,73 @@ def get_table(table_name: str, limit: int = Query(1000, ge=1, le=10000)):
     finally:
         conn.close()
 
+@app.delete("/clear-table/{table_name}")
+def clear_table(table_name: str):
+    conn = get_db_connection()
+    try:
+        conn.execute(f"DELETE FROM [{table_name}]")
+        conn.commit()
+        return {"message": f"Cleared table: {table_name}"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.delete("/delete-row/{table_name}")
+def delete_row(table_name: str, id: int):
+    conn = get_db_connection()
+    try:
+        conn.execute(f"DELETE FROM [{table_name}] WHERE id = ?", (id,))
+        conn.commit()
+        return {"message": f"Deleted row with id: {id} from {table_name}"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+@app.get("/tables")
+def list_tables():
+    conn = get_db_connection()
+    if conn is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+    try:
+        # This works for SQL Server
+        query = """
+        SELECT TABLE_NAME
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_TYPE = 'BASE TABLE'
+        """
+        df = pd.read_sql(query, conn)
+        return df["TABLE_NAME"].tolist()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
 @app.get("/")
 async def root():
     return {"message": "Telemedicine API is running"}
+
+def view_any_table():
+    # ... existing code ...
+    if records:
+        df = pd.DataFrame(records)
+        st.dataframe(df, use_container_width=True)
+        if "id" in df.columns:
+            row_to_delete = st.selectbox("Select id to delete", df["id"])
+            if st.button("Delete Selected Row"):
+                try:
+                    response = requests.delete(
+                        f"{API_URL}/delete-row/{table_name}",
+                        headers={"Authorization": f"Bearer {st.session_state.token}"},
+                        params={"id": int(row_to_delete)}
+                    )
+                    response.raise_for_status()
+                    st.success(f"Deleted row with id: {row_to_delete}")
+                    st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"Error deleting row: {e}")
+        else:
+            st.info("No 'id' column found for deletion.")
