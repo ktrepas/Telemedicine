@@ -195,7 +195,6 @@ MIT License
 ## Authors
 
 - [Konstantinos Trepas](mail to:ktrepas@gmail.com)
-- [Contributors...]
 
 ---
 
